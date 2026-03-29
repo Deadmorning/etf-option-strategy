@@ -54,6 +54,7 @@ class Trade:
     price: float
     quantity: int
     premium: float
+    commission: float = 0.0  # 交易费用
     pnl: float = 0.0
     reason: str = ""
 
@@ -143,7 +144,12 @@ class ETFOptionStrategy:
         )
         
         self.positions.append(position)
-        self.cash -= premium * 10000  # 期权合约乘数 10000
+        
+        # 计算交易费用
+        contract_value = premium * 10000  # 期权合约乘数 10000
+        commission = self.trade_size * 5.0  # 每张 5 元
+        
+        self.cash -= (contract_value + commission)
         
         trade = Trade(
             datetime=current_time,
@@ -152,12 +158,13 @@ class ETFOptionStrategy:
             option_type=option_type,
             price=premium,
             quantity=self.trade_size,
-            premium=premium * 10000,
+            premium=contract_value,
+            commission=commission,
             reason="开仓"
         )
         self.trades.append(trade)
         
-        logger.info(f"开仓：{option_type} {option_code} @ {premium:.4f}")
+        logger.info(f"开仓：{option_type} {option_code} @ {premium:.4f}, 手续费：¥{commission:.2f}")
     
     def check_reverse_signal(self, current_price: float) -> Optional[str]:
         """
@@ -206,9 +213,14 @@ class ETFOptionStrategy:
         # 估算平仓价格（简化：假设当前价格=权利金）
         close_premium = max(0.0001, position.current_value)
         
-        self.cash += close_premium * 10000
+        # 计算交易费用
+        contract_value = close_premium * 10000
+        commission = position.quantity * 5.0  # 每张 5 元
         
-        pnl = (close_premium - position.open_price) * 10000 * position.quantity
+        self.cash += (contract_value - commission)
+        
+        # 计算盈亏（扣除开仓和平仓的手续费）
+        pnl = (close_premium - position.open_price) * 10000 * position.quantity - commission
         
         trade = Trade(
             datetime=current_time,
@@ -217,13 +229,14 @@ class ETFOptionStrategy:
             option_type=position.option_type,
             price=close_premium,
             quantity=position.quantity,
-            premium=close_premium * 10000,
+            premium=contract_value,
+            commission=commission,
             pnl=pnl,
             reason=reason
         )
         self.trades.append(trade)
         
-        logger.info(f"平仓：{position.code} @ {close_premium:.4f}, 盈亏：{pnl:.2f} 元，原因：{reason}")
+        logger.info(f"平仓：{position.code} @ {close_premium:.4f}, 手续费：¥{commission:.2f}, 盈亏：{pnl:.2f} 元，原因：{reason}")
         
         self.positions.remove(position)
     
@@ -264,7 +277,12 @@ class ETFOptionStrategy:
         )
         
         self.positions.append(position)
-        self.cash += premium * 10000  # 卖出期权收取权利金
+        
+        # 计算交易费用
+        contract_value = premium * 10000
+        commission = self.trade_size * 5.0  # 每张 5 元
+        
+        self.cash += (contract_value - commission)  # 卖出期权收取权利金，扣除手续费
         
         trade = Trade(
             datetime=current_time,
@@ -273,12 +291,13 @@ class ETFOptionStrategy:
             option_type=option_type,
             price=premium,
             quantity=self.trade_size,
-            premium=premium * 10000,
+            premium=contract_value,
+            commission=commission,
             reason="对冲"
         )
         self.trades.append(trade)
         
-        logger.info(f"对冲：卖出 {option_type} {option_code} @ {premium:.4f}")
+        logger.info(f"对冲：卖出 {option_type} {option_code} @ {premium:.4f}, 手续费：¥{commission:.2f}")
     
     def clear_all_positions(self, current_time: datetime, current_prices: dict):
         """14:45 清仓所有持仓"""

@@ -55,6 +55,9 @@ SLIPPAGE = 0.001  # 滑点 0.1%
 # 期权合约乘数（ETF 期权通常为 10000）
 OPTION_MULTIPLIER = 10000
 
+# 固定交易费用（元/张）
+FIXED_COMMISSION_PER_CONTRACT = 5.0  # 每张 5 元
+
 # ==================== 日志配置 ====================
 
 LOG_LEVEL = "INFO"
