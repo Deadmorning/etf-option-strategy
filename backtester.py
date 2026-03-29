@@ -111,19 +111,30 @@ class Backtester:
     def estimate_option_premium(self, underlying_price: float, strike_price: float,
                                  option_type: str, days_to_expiry: int = 30) -> float:
         """
-        估算期权权利金（简化模型）
+        估算期权权利金（保守模型 - 修正版）
         
-        使用简化公式：权利金 ≈ 内在价值 + 时间价值
+        使用更保守的参数，避免过度放大
         """
+        # 内在价值
         if option_type == "call":
             intrinsic_value = max(0, underlying_price - strike_price)
+            moneyness = underlying_price / strike_price
         else:
             intrinsic_value = max(0, strike_price - underlying_price)
+            moneyness = strike_price / underlying_price
         
-        # 时间价值（简化：与剩余时间平方根成正比）
-        time_value = 0.05 * underlying_price * np.sqrt(days_to_expiry / 30)
+        # 时间价值（保守估计）
+        # 假设隐含波动率 25-35%
+        implied_vol = 0.30
+        time_factor = np.sqrt(days_to_expiry / 365)
         
-        premium = intrinsic_value + time_value
+        # 简化的时间价值
+        time_value = underlying_price * implied_vol * time_factor * 0.2
+        
+        # 虚值程度调整
+        otm_factor = max(0.2, 1 - abs(moneyness - 1) * 3)
+        
+        premium = intrinsic_value + time_value * otm_factor
         
         return max(0.0001, premium)
     
@@ -203,15 +214,22 @@ class Backtester:
                             current_price=current_price
                         )
                     
-                    # 更新持仓市值
+                    # 更新持仓市值（限制涨跌幅）
                     for pos in self.strategy.positions:
-                        # 简化：假设期权价格与标的价格同向变动
+                        # 计算 ETF 涨跌幅
                         if pos.option_type == "call":
-                            price_change = (current_price - pos.open_price) / pos.open_price
+                            etf_change = (current_price - pos.open_price) / pos.open_price
                         else:
-                            price_change = (pos.open_price - current_price) / pos.open_price
+                            etf_change = (pos.open_price - current_price) / pos.open_price
                         
-                        pos.current_value = pos.open_price * (1 + price_change)
+                        # 期权杠杆放大（3-5 倍，而非之前的 20 倍+）
+                        leverage = 4.0
+                        option_change = etf_change * leverage
+                        
+                        # 限制单日最大涨跌幅
+                        option_change = max(-0.50, min(2.0, option_change))  # -50% 到 +200%
+                        
+                        pos.current_value = pos.open_price * (1 + option_change)
                     
                     # 阶段 3: 对冲阶段（每天最多对冲 1 次）
                     if self.hedge_count_per_day < 1:
